@@ -35,11 +35,22 @@ def _style(ax, title, subtitle=None):
 
 
 def _footer(fig, note, synthetic):
-    fig.text(0.06, 0.03, note, fontsize=8.5, color=INK_2)
+    fig.text(0.06, 0.02, note, fontsize=8.5, color=INK_2, va="bottom", linespacing=1.4)
     if synthetic:
         fig.text(0.5, 0.5, "SYNTHETIC TEST DATA — NOT REAL RESULTS", fontsize=22,
                  color="#e34948", alpha=0.25, ha="center", va="center", rotation=18,
                  fontweight="bold")
+
+
+def _save(fig, out):
+    """Save, then palette-quantise (64 colours) to keep PNGs small for the repo."""
+    fig.savefig(out, facecolor=SURFACE)
+    plt.close(fig)
+    try:
+        from PIL import Image
+        Image.open(out).convert("RGB").quantize(colors=64).save(out, optimize=True)
+    except Exception:
+        pass
 
 
 def _fmt_h(h):
@@ -54,7 +65,7 @@ def _fmt_h(h):
 
 def _new():
     fig, ax = plt.subplots(figsize=(8, 4.5), dpi=200)
-    fig.subplots_adjust(left=0.09, right=0.84, top=0.80, bottom=0.16)
+    fig.subplots_adjust(left=0.09, right=0.84, top=0.80, bottom=0.21)
     return fig, ax
 
 
@@ -84,14 +95,15 @@ def plot_cif(cif: pd.DataFrame, n: int, out: str, synthetic=False, source=""):
                         ha="right", fontsize=9.5, color=INK)
     _style(ax, "How fast do pump.fun memecoins die?",
            f"Cumulative incidence of death vs graduation, n = {n:,} launches")
-    _footer(fig, "Dead = no bonding-curve trade for 24h. Aalen–Johansen estimator (graduation as "
-                 "competing risk). " + source, synthetic)
-    fig.savefig(out, facecolor=SURFACE)
-    plt.close(fig)
+    _footer(fig, "Dead = no curve trade in last 24h of a 7-day window. Aalen–Johansen (graduation = competing risk).\n"
+                 + source, synthetic)
+    _save(fig, out)
 
 
 def plot_km_groups(curves: dict, labels: dict, p_value: float, out: str,
-                   synthetic=False, source=""):
+                   synthetic=False, source="",
+                   title="Does the creator selling early shorten a token's life?",
+                   subtitle="Survival of tokens alive at 5 minutes, by creator behaviour"):
     fig, ax = _new()
     medians = []
     for i, (g, c) in enumerate(sorted(curves.items())):
@@ -116,17 +128,15 @@ def plot_km_groups(curves: dict, labels: dict, p_value: float, out: str,
             ha="right", va="top", fontsize=9.5, color=INK)
     ax.legend(frameon=False, loc="upper right", fontsize=9.5, labelcolor=INK)
     ptxt = "p < 0.001" if p_value < 0.001 else f"p = {p_value:.3f}"
-    _style(ax, "Does the creator selling early shorten a token's life?",
-           f"Survival of tokens alive at 5 minutes, by creator behaviour (log-rank {ptxt})")
+    _style(ax, title, f"{subtitle} (log-rank {ptxt})")
     _footer(fig, "Kaplan–Meier with 95% CI; graduation treated as censoring. " + source, synthetic)
-    fig.savefig(out, facecolor=SURFACE)
-    plt.close(fig)
+    _save(fig, out)
 
 
 def plot_forest(table: pd.DataFrame, labels: dict, out: str, synthetic=False, source=""):
     t = table.sort_values("HR").reset_index(drop=True)
     fig, ax = plt.subplots(figsize=(8, 4.5), dpi=200)
-    fig.subplots_adjust(left=0.40, right=0.95, top=0.80, bottom=0.16)
+    fig.subplots_adjust(left=0.40, right=0.95, top=0.80, bottom=0.19)
     y = np.arange(len(t))
     risk = t["HR"] > 1
     cols = np.where(risk, SERIES[1], SERIES[0])
@@ -149,8 +159,7 @@ def plot_forest(table: pd.DataFrame, labels: dict, out: str, synthetic=False, so
            "Cause-specific Cox model, 95% CI. Continuous features per 1 SD.")
     ax.grid(axis="y", visible=False)
     _footer(fig, source, synthetic)
-    fig.savefig(out, facecolor=SURFACE)
-    plt.close(fig)
+    _save(fig, out)
 
 
 def plot_daily(daily: pd.DataFrame, out: str, synthetic=False, source=""):
@@ -176,10 +185,9 @@ def plot_daily(daily: pd.DataFrame, out: str, synthetic=False, source=""):
         a.grid(axis="y", color=GRID, linewidth=0.8)
         a.set_axisbelow(True)
     fig.patch.set_facecolor(SURFACE)
-    fig.text(0.06, 0.95, "Thousands of launches a day, almost none graduate", fontsize=15,
+    fig.text(0.06, 0.95, "30–55k launches a day, 2–4% graduate", fontsize=15,
              fontweight="bold", color=INK, va="top")
-    fig.text(0.06, 0.885, "Daily pump.fun launches and share that filled the bonding curve",
+    fig.text(0.06, 0.885, "Daily pump.fun launches and graduations (bonding curve filled), 13 Aug – 20 Oct 2026",
              fontsize=10.5, color=INK_2, va="top")
     _footer(fig, source, synthetic)
-    fig.savefig(out, facecolor=SURFACE)
-    plt.close(fig)
+    _save(fig, out)

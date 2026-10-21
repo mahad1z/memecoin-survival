@@ -1,4 +1,4 @@
-"""Load the Dune export and build the modelling table."""
+"""Load the prepared token table and build model features."""
 from __future__ import annotations
 
 import numpy as np
@@ -9,7 +9,7 @@ OUTCOMES = ("dead", "graduated", "censored")
 
 REQUIRED = [
     "mint", "created_at", "outcome", "duration_hours", "launch_hour_utc",
-    "n_trades_5m", "n_traders_5m", "buy_sol_5m", "sell_sol_5m", "dev_buy_sol",
+    "n_trades_5m", "n_traders_5m", "buy_tokens_5m", "sell_tokens_5m", "net_sol_5m", "dev_buy_sol",
     "dev_sold_5m", "same_slot_buyers", "top10_share_5m",
     "creator_prior_launches_30d",
 ]
@@ -17,8 +17,8 @@ REQUIRED = [
 # Model features: name -> plain-English label used in tables and charts
 FEATURES = {
     "log_traders_5m": "Unique traders, first 5 min (log)",
-    "log_buy_sol_5m": "Buy volume SOL, first 5 min (log)",
-    "sell_share_5m": "Sell share of volume, first 5 min",
+    "log_net_sol_5m": "Net SOL into the curve, first 5 min (log)",
+    "sell_share_5m": "Sell share of token volume, first 5 min",
     "log_dev_buy": "Creator's own buy, SOL (log)",
     "dev_sold_5m": "Creator sold within 5 min",
     "log_same_slot_buyers": "Buyers in the launch block (log)",
@@ -48,10 +48,10 @@ def load(path: str) -> pd.DataFrame:
 
 def add_features(df: pd.DataFrame) -> pd.DataFrame:
     out = df.copy()
-    vol = out["buy_sol_5m"] + out["sell_sol_5m"]
+    vol = out["buy_tokens_5m"] + out["sell_tokens_5m"]
     out["log_traders_5m"] = np.log1p(out["n_traders_5m"])
-    out["log_buy_sol_5m"] = np.log1p(out["buy_sol_5m"])
-    out["sell_share_5m"] = np.where(vol > 0, out["sell_sol_5m"] / vol.where(vol > 0, 1), 0.0)
+    out["log_net_sol_5m"] = np.log1p(out["net_sol_5m"].clip(lower=0))
+    out["sell_share_5m"] = np.where(vol > 0, out["sell_tokens_5m"] / vol.where(vol > 0, 1), 0.0)
     out["log_dev_buy"] = np.log1p(out["dev_buy_sol"])
     out["dev_sold_5m"] = (out["dev_sold_5m"] > 0).astype(int)
     out["log_same_slot_buyers"] = np.log1p(out["same_slot_buyers"])

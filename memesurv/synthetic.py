@@ -1,6 +1,6 @@
 """Synthetic data with the same schema as sql/01_token_level.sql.
 
-Only for testing the pipeline before the real Dune export arrives.
+Only for testing the pipeline (CI and tests).
 Numbers produced from this data mean NOTHING and must never be published.
 """
 from __future__ import annotations
@@ -55,8 +55,9 @@ def make(n: int = 20000, seed: int = 0) -> pd.DataFrame:
         "duration_hours": dur,
         "n_trades_5m": traders * 2,
         "n_traders_5m": traders,
-        "buy_sol_5m": buy,
-        "sell_sol_5m": sell,
+        "buy_tokens_5m": buy * 3e7,
+        "sell_tokens_5m": sell * 3e7,
+        "net_sol_5m": np.clip(buy - sell, 0, None),
         "dev_buy_sol": dev_buy,
         "dev_sold_5m": dev_sold.astype(int),
         "same_slot_buyers": same_slot,
