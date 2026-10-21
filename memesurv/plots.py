@@ -43,12 +43,12 @@ def _footer(fig, note, synthetic):
 
 
 def _save(fig, out):
-    """Save, then palette-quantise (64 colours) to keep PNGs small for the repo."""
+    """Save, then palette-quantise (48 colours) to keep PNGs small for the repo."""
     fig.savefig(out, facecolor=SURFACE)
     plt.close(fig)
     try:
         from PIL import Image
-        Image.open(out).convert("RGB").quantize(colors=64).save(out, optimize=True)
+        Image.open(out).convert("RGB").quantize(colors=48).save(out, optimize=True)
     except Exception:
         pass
 
@@ -64,7 +64,7 @@ def _fmt_h(h):
 
 
 def _new():
-    fig, ax = plt.subplots(figsize=(8, 4.5), dpi=200)
+    fig, ax = plt.subplots(figsize=(8, 4.5), dpi=150)
     fig.subplots_adjust(left=0.09, right=0.84, top=0.80, bottom=0.21)
     return fig, ax
 
@@ -135,7 +135,7 @@ def plot_km_groups(curves: dict, labels: dict, p_value: float, out: str,
 
 def plot_forest(table: pd.DataFrame, labels: dict, out: str, synthetic=False, source=""):
     t = table.sort_values("HR").reset_index(drop=True)
-    fig, ax = plt.subplots(figsize=(8, 4.5), dpi=200)
+    fig, ax = plt.subplots(figsize=(8, 4.5), dpi=150)
     fig.subplots_adjust(left=0.40, right=0.95, top=0.80, bottom=0.19)
     y = np.arange(len(t))
     risk = t["HR"] > 1
@@ -165,7 +165,7 @@ def plot_forest(table: pd.DataFrame, labels: dict, out: str, synthetic=False, so
 def plot_daily(daily: pd.DataFrame, out: str, synthetic=False, source=""):
     daily = daily.copy()
     daily["day"] = pd.to_datetime(daily["day"])
-    fig, (a1, a2) = plt.subplots(2, 1, figsize=(8, 4.5), dpi=200, sharex=True)
+    fig, (a1, a2) = plt.subplots(2, 1, figsize=(8, 4.5), dpi=150, sharex=True)
     fig.subplots_adjust(left=0.10, right=0.95, top=0.80, bottom=0.14, hspace=0.35)
     a1.bar(daily["day"], daily["launches"] / 1000, color=SERIES[0], width=0.8)
     a1.set_ylabel("Launches (k)", color=INK_2, fontsize=9.5)
