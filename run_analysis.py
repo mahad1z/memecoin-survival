@@ -4,8 +4,8 @@
     python run_analysis.py --synthetic         # pipeline test on fake data (watermarked)
 
 Optional inputs picked up automatically if present:
-    data/population_summary.csv   (sql/02) -> headline numbers on all tokens
-    data/daily_context.csv        (sql/03) -> context chart
+    data/population_summary.csv   (sql/04) -> headline numbers on all tokens
+    data/daily_context.csv        (sql/05) -> context chart
 Outputs: figures/*.png, results/summary.md, results/*.csv
 """
 from __future__ import annotations
@@ -64,23 +64,30 @@ def main():
         dp = ROOT / "data" / "daily_context.csv"
         pp = ROOT / "data" / "population_summary.csv"
         daily = pd.read_csv(dp) if dp.exists() else None
-        pop = pd.read_csv(pp).iloc[0] if pp.exists() else None
-        source = "Data: Dune Analytics (pump.fun decoded events)."
+        pop_raw = pd.read_csv(pp) if pp.exists() else None
+        pop = pop_raw.drop(columns=["day_start"], errors="ignore").sum(numeric_only=True) if pop_raw is not None else None
+        source = "Data: Solana on-chain transfers, Coinbase CDP SQL API."
     syn = args.synthetic
 
-    df = data.add_features(raw)
+    df_all = data.add_features(raw)
+    if "mayhem" not in df_all.columns:
+        df_all["mayhem"] = 0
+    n_all = len(df_all)
+    # Main models use standard launches; "Mayhem Mode" launches (2bn supply, different
+    # curve mechanics) are reported separately.
+    df = df_all[df_all["mayhem"] == 0].copy()
     n = len(df)
     out = []
     out.append("# Results" + (" — SYNTHETIC TEST RUN (do not publish)" if syn else ""))
-    out.append(f"\nSample: **{n:,} tokens** launched "
+    out.append(f"\nSample: **{n_all:,} tokens** ({n_all - n:,} Mayhem Mode, {n:,} standard) launched "
                f"{df['created_at'].min():%Y-%m-%d} to {df['created_at'].max():%Y-%m-%d}.\n")
     out.append("Outcome counts: " + ", ".join(
-        f"{k} {v:,} ({v / n:.1%})" for k, v in df["outcome"].value_counts().items()) + "\n")
+        f"{k} {v:,} ({v / n_all:.1%})" for k, v in df_all["outcome"].value_counts().items()) + "\n")
 
-    # ---------- 1. competing-risks incidence on ALL tokens
-    cause = np.select([df["outcome"] == "dead", df["outcome"] == "graduated"], [1, 2], 0)
-    cif = survival.cumulative_incidence(df["duration_hours"], cause)
-    ci = survival.bootstrap_cif_ci(df["duration_hours"].to_numpy(), cause,
+    # ---------- 1. competing-risks incidence on ALL sampled tokens
+    cause = np.select([df_all["outcome"] == "dead", df_all["outcome"] == "graduated"], [1, 2], 0)
+    cif = survival.cumulative_incidence(df_all["duration_hours"], cause)
+    ci = survival.bootstrap_cif_ci(df_all["duration_hours"].to_numpy(), cause,
                                    list(HORIZONS.values()), n_boot=args.n_boot)
     rows = []
     for (label, h), (_, c) in zip(HORIZONS.items(), ci.iterrows()):
@@ -92,27 +99,51 @@ def main():
     inc.to_csv(res_dir / "incidence.csv", index=False)
     out.append("## 1. How fast they die (Aalen–Johansen, 95% bootstrap CI)\n")
     out.append(md_table(inc) + "\n")
-    plots.plot_cif(cif, n, str(figs / "fig1_death_vs_graduation.png"), syn, source)
+    plots.plot_cif(cif, n_all, str(figs / "fig1_death_vs_graduation.png"), syn, source)
+
+    # standard vs Mayhem Mode
+    rows = []
+    for lab, sub in (("Standard", df_all[df_all["mayhem"] == 0]), ("Mayhem Mode", df_all[df_all["mayhem"] == 1])):
+        if len(sub) == 0:
+            continue
+        cs = np.select([sub["outcome"] == "dead", sub["outcome"] == "graduated"], [1, 2], 0)
+        cc = survival.cumulative_incidence(sub["duration_hours"], cs)
+        v1, v24, v7 = (survival.cif_at(cc, h) for h in (1, 24, 168))
+        rows.append({"launch type": lab, "n": f"{len(sub):,}", "dead by 1h": f"{v1['cif_dead']:.1%}",
+                     "dead by 24h": f"{v24['cif_dead']:.1%}", "graduated by 7d": f"{v7['cif_grad']:.2%}"})
+    out.append("### Standard vs Mayhem Mode launches\n")
+    out.append(md_table(pd.DataFrame(rows)) + "\n")
 
     if pop is not None:
         N = pop["n_tokens"]
-        out.append("### Full population check (no sampling, sql/02)\n")
+        out.append("### Full population check (no sampling, sql/04)\n")
         out.append(f"- Tokens: {int(N):,}\n- Graduated: {pop['n_graduated'] / N:.2%}\n"
                    f"- Dead within 5 min: {pop['n_dead_within_5m'] / N:.1%}, 1h: "
                    f"{pop['n_dead_within_1h'] / N:.1%}, 24h: {pop['n_dead_within_24h'] / N:.1%}, "
-                   f"7d: {pop['n_dead_within_7d'] / N:.1%}\n"
+                   f"7d: {pop['n_dead'] / N:.1%}\n"
                    f"- At most one trade ever: {pop['n_at_most_one_trade'] / N:.1%}\n"
-                   f"- Median hours to graduate: {pop['median_hours_to_graduate']:.2f}; "
-                   f"median hours to death: {pop['median_hours_to_death']:.2f}\n")
+                   f"- Graduated within 1h: {pop['n_grad_within_1h'] / N:.2%}, within 24h: "
+                   f"{pop['n_grad_within_24h'] / N:.2%}\n")
 
     # ---------- 2. landmark cohort: alive at 5 minutes
     lm = data.landmark(df)
-    out.append(f"## 2. Tokens alive at 5 minutes: {len(lm):,} ({len(lm) / n:.1%} of launches)\n")
-    curves, chi2, p = survival.km_by_group(lm, "t_lm", "dead", "dev_sold_5m")
-    plots.plot_km_groups(curves, {0: "Creator held", 1: "Creator sold"}, p,
-                         str(figs / "fig2_creator_selling.png"), syn, source)
-    out.append(f"Log-rank test, creator sold within 5 min vs held: chi² = {chi2:.1f}, "
-               f"p = {fmt_p(p)}\n")
+    out.append(f"## 2. Standard tokens alive at 5 minutes: {len(lm):,} ({len(lm) / n:.1%} of standard launches)\n")
+    lm["trader_group"] = pd.cut(lm["n_traders_5m"], [-1, 5, 20, np.inf], labels=[0, 1, 2]).astype(int)
+    curves, chi2, p = survival.km_by_group(lm, "t_lm", "dead", "trader_group")
+    plots.plot_km_groups(curves, {0: "0–5 traders", 1: "6–20 traders", 2: "21+ traders"}, p,
+                         str(figs / "fig2_traders.png"), syn, source,
+                         title="Real early demand is what keeps a memecoin alive",
+                         subtitle="Survival of tokens alive at 5 min, by unique traders in the first 5 min")
+    share = lm["trader_group"].value_counts(normalize=True).sort_index()
+    out.append(f"Unique traders in first 5 min: 0–5 = {share.get(0, 0):.0%}, 6–20 = {share.get(1, 0):.0%}, "
+               f"21+ = {share.get(2, 0):.0%} of the cohort. Log-rank chi² = {chi2:.1f}, p = {fmt_p(p)}\n")
+    for g, c in sorted(curves.items()):
+        below = c.loc[c["surv"] <= 0.5, "time"]
+        out.append(f"- {['0–5', '6–20', '21+'][g]} traders: median remaining life {below.iloc[0] if len(below) else float('nan'):.2f} h")
+    out.append("")
+    _, chi2b, pb = survival.km_by_group(lm, "t_lm", "dead", "dev_sold_5m")
+    out.append(f"Creator sold within 5 min vs held: log-rank chi² = {chi2b:.1f}, p = {fmt_p(pb)} "
+               f"(share of the cohort where the creator sold: {lm['dev_sold_5m'].mean():.0%})\n")
 
     # ---------- 3. Cox model
     feats = list(data.FEATURES)

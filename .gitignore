@@ -3,3 +3,8 @@ __pycache__/
 .venv/
 .DS_Store
 .pytest_cache/
+# large query exports (regenerate with sql/)
+data/raw_token_level.csv
+data/concentration.csv
+data/creator_history.csv
+data/token_level.csv
